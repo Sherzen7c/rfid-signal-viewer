@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>RFID 样本波形查看器</title>
+    <link rel="stylesheet" href="styles.css">
+    <script defer src="parser.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div class="app-shell" id="appShell" data-state="empty">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-trace" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div>
+            <h1>RFID 样本波形查看器</h1>
+            <p>本地数据检查台</p>
+          </div>
+        </div>
+
+        <div class="topbar-tools">
+          <div class="axis-control" aria-label="横轴类型">
+            <button class="axis-button is-active" type="button" data-axis="time" aria-pressed="true">
+              时间
+            </button>
+            <button class="axis-button" type="button" data-axis="point" aria-pressed="false">
+              采集点
+            </button>
+          </div>
+
+          <button id="compareButton" class="quiet-button compare-button" type="button" aria-pressed="false" disabled>
+            对比样本
+          </button>
+          <label class="file-button" for="fileInput">选择文件</label>
+          <input id="fileInput" class="visually-hidden" type="file" accept=".txt,.csv,text/plain,text/csv" multiple>
+          <button id="clearButton" class="quiet-button" type="button" disabled>清空全部</button>
+        </div>
+      </header>
+
+      <div class="file-strip" id="fileStrip" role="tablist" aria-label="已载入样本"></div>
+
+      <main class="workspace">
+        <aside class="sidebar" id="sidebar" aria-label="样本信息">
+          <section class="sidebar-section">
+            <div class="section-heading">
+              <h2>样本信息</h2>
+            </div>
+            <dl class="metadata-list" id="metadataList"></dl>
+          </section>
+
+          <section class="sidebar-section tag-section">
+            <div class="section-heading">
+              <h2>标签曲线</h2>
+              <button id="toggleAllTags" class="text-button" type="button">全部隐藏</button>
+            </div>
+            <div class="tag-list" id="tagList"></div>
+          </section>
+
+          <section class="sidebar-section parse-section" id="parseSection" hidden>
+            <div class="section-heading">
+              <h2>解析提示</h2>
+            </div>
+            <div id="parseMessages" class="parse-messages"></div>
+          </section>
+
+          <section class="sidebar-section sidebar-drop-section">
+            <button class="sidebar-drop-target" id="sidebarDropTarget" type="button">
+              <span class="sidebar-drop-mark" aria-hidden="true">+</span>
+              <span class="sidebar-drop-copy">
+                <strong>拖入更多文件</strong>
+                <small>或点击选择</small>
+              </span>
+            </button>
+          </section>
+        </aside>
+
+        <section class="main-stage" id="mainStage">
+          <div class="empty-state" id="emptyState">
+            <button class="drop-target" id="dropTarget" type="button">
+              <span class="empty-trace" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+              </span>
+              <strong>把采集文件拖到这里</strong>
+              <span>支持采集程序 TXT 和 RF-UI data40user CSV 文件</span>
+              <small>也可以点击选择多个文件</small>
+            </button>
+          </div>
+
+          <div class="viewer" id="viewer" hidden>
+            <header class="sample-header">
+              <div class="sample-title-block">
+                <div class="format-kicker" id="formatKicker">RFID SAMPLE</div>
+                <h2 id="sampleTitle">未选择样本</h2>
+              </div>
+              <div class="sample-stats" id="sampleStats"></div>
+            </header>
+
+            <div class="chart-stack" id="chartStack"></div>
+          </div>
+
+          <div class="compare-viewer" id="compareViewer" hidden>
+            <header class="compare-header">
+              <div class="sample-title-block">
+                <div class="format-kicker">SAMPLE COMPARISON</div>
+                <h2>双样本波形对比</h2>
+              </div>
+
+              <div class="compare-controls">
+                <div class="compare-layout-control" aria-label="对比显示方式">
+                  <button class="compare-layout-button is-active" id="sideBySideButton" type="button" aria-pressed="true">
+                    并排
+                  </button>
+                  <button class="compare-layout-button" id="overlayButton" type="button" aria-pressed="false">
+                    重叠
+                  </button>
+                </div>
+
+                <div class="compare-selectors">
+                  <label class="compare-select">
+                    <span>样本 A</span>
+                    <select id="compareSelectA" aria-label="选择样本 A"></select>
+                  </label>
+                  <span class="compare-vs" aria-hidden="true">VS</span>
+                  <label class="compare-select">
+                    <span>样本 B</span>
+                    <select id="compareSelectB" aria-label="选择样本 B"></select>
+                  </label>
+                </div>
+              </div>
+            </header>
+
+            <div class="compare-line-key" id="compareLineKey" hidden>
+              <span><i class="sample-line-a" aria-hidden="true"></i>样本 A · 深色</span>
+              <span><i class="sample-line-b" aria-hidden="true"></i>样本 B · 浅色</span>
+            </div>
+            <div class="compare-summary" id="compareSummary"></div>
+            <div class="compare-chart-stack" id="compareChartStack"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="drop-overlay" id="dropOverlay" hidden>
+      <div>
+        <strong>松开以读取样本</strong>
+        <span>文件只在当前浏览器中处理</span>
+      </div>
+    </div>
+
+    <div class="chart-tooltip" id="chartTooltip" role="status" hidden></div>
+    <div class="toast-region" id="toastRegion" aria-live="polite"></div>
+  </body>
+</html>
