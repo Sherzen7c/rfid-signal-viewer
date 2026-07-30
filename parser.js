@@ -230,6 +230,42 @@
     return values;
   }
 
+  function unwrapPhaseValues(values) {
+    const result = [];
+    let previousRaw = null;
+    let previousUnwrapped = null;
+
+    values.forEach((value) => {
+      if (value === null || value === undefined || !Number.isFinite(value)) {
+        result.push(null);
+        previousRaw = null;
+        previousUnwrapped = null;
+        return;
+      }
+
+      if (previousRaw === null) {
+        result.push(value);
+        previousRaw = value;
+        previousUnwrapped = value;
+        return;
+      }
+
+      let delta = value - previousRaw;
+      while (delta > Math.PI) {
+        delta -= 2 * Math.PI;
+      }
+      while (delta < -Math.PI) {
+        delta += 2 * Math.PI;
+      }
+
+      previousUnwrapped += delta;
+      result.push(previousUnwrapped);
+      previousRaw = value;
+    });
+
+    return result;
+  }
+
   function parseRfidText(text, fileName) {
     if (typeof text !== "string") {
       throw new TypeError("文件内容必须是文本");
@@ -339,6 +375,7 @@
     SPEED_LABELS: SPEED_LABELS,
     GAIT_LABELS: GAIT_LABELS,
     parseFilename: parseFilename,
-    parseRfidText: parseRfidText
+    parseRfidText: parseRfidText,
+    unwrapPhaseValues: unwrapPhaseValues
   };
 });

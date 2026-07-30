@@ -18,6 +18,7 @@
     files: [],
     activeId: null,
     axis: "time",
+    phaseMode: "raw",
     compareMode: false,
     compareIds: [null, null],
     compareLayout: "side-by-side",
@@ -134,6 +135,12 @@
     result.records.forEach((record) => {
       recordsByTag.get(record.tagId).push(record);
       tagCounts.set(record.tagId, tagCounts.get(record.tagId) + 1);
+    });
+    recordsByTag.forEach((records) => {
+      const unwrapped = parser.unwrapPhaseValues(records.map((record) => record.phase));
+      records.forEach((record, index) => {
+        record.phaseUnwrapped = unwrapped[index];
+      });
     });
 
     return {
@@ -598,9 +605,23 @@
     return getXDomainForSamples([sample]);
   }
 
+  function metricValue(record, metric) {
+    if (metric === "phase" && state.phaseMode === "unwrapped") {
+      return record.phaseUnwrapped;
+    }
+    return record[metric];
+  }
+
+  function metricDisplayLabel(metric) {
+    if (metric === "phase" && state.phaseMode === "unwrapped") {
+      return "相位（解缠）";
+    }
+    return METRIC_CONFIG[metric].label;
+  }
+
   function getYDomain(records, metric) {
     const values = records
-      .map((record) => record[metric])
+      .map((record) => metricValue(record, metric))
       .filter((value) => value !== null && Number.isFinite(value));
     if (!values.length) {
       return null;
@@ -623,7 +644,7 @@
   function linePath(records, metric, xScale, yScale) {
     const parts = [];
     records.forEach((record) => {
-      const value = record[metric];
+      const value = metricValue(record, metric);
       if (value === null || !Number.isFinite(value)) {
         return;
       }
@@ -640,6 +661,30 @@
       return value.toFixed(2);
     }
     return Math.round(value).toString();
+  }
+
+  function createPhaseModeControl() {
+    const control = document.createElement("div");
+    control.className = "phase-mode-control";
+    control.setAttribute("role", "group");
+    control.setAttribute("aria-label", "相位显示方式");
+
+    [
+      { mode: "raw", label: "原始" },
+      { mode: "unwrapped", label: "解缠" }
+    ].forEach((item) => {
+      const button = document.createElement("button");
+      const active = state.phaseMode === item.mode;
+      button.type = "button";
+      button.className = "phase-mode-button";
+      button.textContent = item.label;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-pressed", active ? "true" : "false");
+      button.addEventListener("click", () => setPhaseMode(item.mode));
+      control.appendChild(button);
+    });
+
+    return control;
   }
 
   function drawMetricChart(sample, metric, xDomain, options) {
@@ -666,7 +711,13 @@
     const rangeLabel = document.createElement("span");
     rangeLabel.className = "chart-range";
     rangeLabel.hidden = Boolean(chartOptions.hideRange);
-    panelHeader.append(titleWrap, rangeLabel);
+    const panelActions = document.createElement("div");
+    panelActions.className = "chart-panel-actions";
+    if (metric === "phase" && !chartOptions.hidePhaseControl) {
+      panelActions.appendChild(createPhaseModeControl());
+    }
+    panelActions.appendChild(rangeLabel);
+    panelHeader.append(titleWrap, panelActions);
 
     const frame = document.createElement("div");
     frame.className = "chart-frame";
@@ -698,7 +749,7 @@
     const svg = svgElement("svg", {
       viewBox: "0 0 " + width + " " + height,
       role: "img",
-      "aria-label": config.label + " 波形图"
+      "aria-label": metricDisplayLabel(metric) + " 波形图"
     });
 
     for (let index = 0; index <= 4; index += 1) {
@@ -893,7 +944,7 @@
       const header = document.createElement("header");
       header.className = "compare-metric-header";
       const title = document.createElement("h3");
-      title.textContent = config.label;
+      title.textContent = metricDisplayLabel(metric);
       const range = document.createElement("span");
       const unit = metric === "df" && samples.some((sample) => sample.result.format === "rfui")
         ? "单位未确认"
@@ -902,7 +953,13 @@
         ? formatValue(yDomain[0], config.decimals) + " — " +
           formatValue(yDomain[1], config.decimals) + " " + unit
         : "没有可见数据";
-      header.append(title, range);
+      const actions = document.createElement("div");
+      actions.className = "compare-metric-actions";
+      if (metric === "phase") {
+        actions.appendChild(createPhaseModeControl());
+      }
+      actions.appendChild(range);
+      header.append(title, actions);
 
       const grid = document.createElement("div");
       grid.className = "compare-chart-grid";
@@ -919,7 +976,8 @@
           overlay: true,
           title: "A 与 B 重叠曲线",
           subtitle: "相同标签同色",
-          hideRange: true
+          hideRange: true,
+          hidePhaseControl: true
         });
       } else {
         samples.forEach((sample, sampleIndex) => {
@@ -929,7 +987,8 @@
             colorByTag: colorByTag,
             title: (sampleIndex === 0 ? "A · " : "B · ") + sample.fileName,
             subtitle: sample.result.formatLabel,
-            hideRange: true
+            hideRange: true,
+            hidePhaseControl: true
           });
         });
       }
@@ -974,8 +1033,8 @@
       ? "时间 " + xValue.toFixed(3) + " s"
       : "采集点 " + Math.round(xValue);
     const metricLabels = focusedMetric
-      ? METRIC_CONFIG[focusedMetric].label
-      : samples[0].result.metrics.map((metric) => METRIC_CONFIG[metric].label).join(" · ");
+      ? metricDisplayLabel(focusedMetric)
+      : samples[0].result.metrics.map(metricDisplayLabel).join(" · ");
     const rows = [];
 
     samples.forEach((sample, sampleIndex) => {
@@ -990,8 +1049,8 @@
         const metrics = focusedMetric ? [focusedMetric] : sample.result.metrics;
         const values = metrics.map((metric) => {
           const config = METRIC_CONFIG[metric];
-          return "<span>" + escapeHtml(config.label) + " " +
-            escapeHtml(formatValue(record[metric], config.decimals)) + "</span>";
+          return "<span>" + escapeHtml(metricDisplayLabel(metric)) + " " +
+            escapeHtml(formatValue(metricValue(record, metric), config.decimals)) + "</span>";
         }).join("");
         const sampleBadge = comparisonActive
           ? "<span class=\"tooltip-sample-badge\" style=\"--sample-color:" +
@@ -1025,7 +1084,7 @@
       context.cursor.setAttribute("visibility", "visible");
       context.dots.forEach((entry) => {
         const record = nearestRecord(entry.sample.recordsByTag.get(entry.tag), xValue);
-        const value = record ? record[context.metric] : null;
+        const value = record ? metricValue(record, context.metric) : null;
         if (value === null || !Number.isFinite(value)) {
           entry.dot.setAttribute("visibility", "hidden");
           return;
@@ -1070,6 +1129,15 @@
     if (currentSample()) {
       window.requestAnimationFrame(renderVisibleCharts);
     }
+  }
+
+  function setPhaseMode(mode) {
+    if ((mode !== "raw" && mode !== "unwrapped") || state.phaseMode === mode) {
+      return;
+    }
+    state.phaseMode = mode;
+    hideHover();
+    window.requestAnimationFrame(renderVisibleCharts);
   }
 
   function supportedAxesForView() {

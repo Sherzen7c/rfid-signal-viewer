@@ -909,6 +909,41 @@ select:focus-visible {
   font-size: 10px;
 }
 
+.compare-metric-actions,
+.chart-panel-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.phase-mode-control {
+  display: grid;
+  grid-template-columns: repeat(2, 44px);
+  height: 28px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-soft);
+}
+
+.phase-mode-button {
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.phase-mode-button.is-active {
+  background: var(--panel);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(23, 38, 46, 0.12);
+  font-weight: 700;
+}
+
 .compare-chart-grid {
   min-width: 0;
   display: grid;
