@@ -19,6 +19,8 @@
     activeId: null,
     axis: "time",
     phaseMode: "raw",
+    zoomDomain: null,
+    zoomFrame: null,
     compareMode: false,
     compareIds: [null, null],
     compareLayout: "side-by-side",
@@ -32,6 +34,7 @@
     fileInput: document.getElementById("fileInput"),
     clearButton: document.getElementById("clearButton"),
     compareButton: document.getElementById("compareButton"),
+    zoomResetButton: document.getElementById("zoomResetButton"),
     fileStrip: document.getElementById("fileStrip"),
     metadataList: document.getElementById("metadataList"),
     tagList: document.getElementById("tagList"),
@@ -177,6 +180,7 @@
 
     state.files.push.apply(state.files, loaded);
     state.activeId = loaded[0].id;
+    state.zoomDomain = null;
     refs.fileInput.value = "";
     render();
     showToast("已读取 " + loaded.length + " 个样本", false);
@@ -211,6 +215,7 @@
       return;
     }
     state.compareMode = Boolean(enabled);
+    state.zoomDomain = null;
     render();
   }
 
@@ -233,6 +238,7 @@
     }
     state.compareIds[index] = id;
     state.activeId = state.compareIds[0];
+    state.zoomDomain = null;
     render();
   }
 
@@ -248,6 +254,7 @@
       const fallback = state.files[index] || state.files[index - 1] || null;
       state.activeId = fallback ? fallback.id : null;
     }
+    state.zoomDomain = null;
     ensureComparisonSelection();
     render();
   }
@@ -257,6 +264,7 @@
     state.activeId = null;
     state.compareMode = false;
     state.compareIds = [null, null];
+    state.zoomDomain = null;
     render();
   }
 
@@ -286,6 +294,7 @@
           return;
         }
         state.activeId = sample.id;
+        state.zoomDomain = null;
         render();
       });
 
@@ -554,6 +563,7 @@
     hideHover();
     renderTabs();
     updateAxisControl();
+    updateZoomControl();
 
     if (!sample) {
       refs.chartStack.replaceChildren();
@@ -601,8 +611,26 @@
     return [min, max];
   }
 
+  function currentViewSamples() {
+    return state.compareMode ? comparisonSamples() : [currentSample()].filter(Boolean);
+  }
+
+  function clampZoomDomain(domain, fullDomain) {
+    if (!domain) {
+      return fullDomain;
+    }
+    const start = Math.max(fullDomain[0], Math.min(domain[0], domain[1]));
+    const end = Math.min(fullDomain[1], Math.max(domain[0], domain[1]));
+    return end > start ? [start, end] : fullDomain;
+  }
+
+  function getDisplayedXDomainForSamples(samples) {
+    const fullDomain = getXDomainForSamples(samples);
+    return clampZoomDomain(state.zoomDomain, fullDomain);
+  }
+
   function getXDomain(sample) {
-    return getXDomainForSamples([sample]);
+    return getDisplayedXDomainForSamples([sample]);
   }
 
   function metricValue(record, metric) {
@@ -894,6 +922,22 @@
         chartOptions.colorByTag
       );
     });
+    overlay.addEventListener("wheel", (event) => {
+      const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 120 : 1;
+      const delta = event.deltaY * deltaMultiplier;
+      if (!delta || (delta > 0 && !state.zoomDomain)) {
+        return;
+      }
+
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const viewX = ((event.clientX - rect.left) / rect.width) * width;
+      const boundedX = Math.max(padding.left, Math.min(width - padding.right, viewX));
+      const xValue = xDomain[0] +
+        ((boundedX - padding.left) / plotWidth) * (xDomain[1] - xDomain[0]);
+      const limitedDelta = Math.max(-240, Math.min(240, delta));
+      zoomAt(xValue, Math.exp(limitedDelta * 0.0015));
+    }, { passive: false });
     overlay.addEventListener("pointerleave", hideHover);
   }
 
@@ -901,6 +945,7 @@
     if (state.compareMode || !sample || sample.id !== state.activeId) {
       return;
     }
+    updateZoomControl();
     refs.chartStack.replaceChildren();
     state.chartContexts = [];
     hideHover();
@@ -912,6 +957,7 @@
     if (!state.compareMode) {
       return;
     }
+    updateZoomControl();
     const samples = comparisonSamples();
     if (samples.length !== 2) {
       return;
@@ -932,7 +978,7 @@
       return;
     }
 
-    const xDomain = getXDomainForSamples(samples);
+    const xDomain = getDisplayedXDomainForSamples(samples);
     const colorByTag = comparisonColorMap(samples);
     const overlayActive = state.compareLayout === "overlay";
     commonMetrics.forEach((metric) => {
@@ -996,11 +1042,85 @@
   }
 
   function renderVisibleCharts() {
+    updateZoomControl();
     if (state.compareMode) {
       renderComparisonCharts();
       return;
     }
     renderCharts(currentSample());
+  }
+
+  function scheduleZoomRender() {
+    if (state.zoomFrame !== null) {
+      window.cancelAnimationFrame(state.zoomFrame);
+    }
+    state.zoomFrame = window.requestAnimationFrame(() => {
+      state.zoomFrame = null;
+      renderVisibleCharts();
+    });
+  }
+
+  function setZoomDomain(domain) {
+    const samples = currentViewSamples();
+    if (!samples.length) {
+      return;
+    }
+    const fullDomain = getXDomainForSamples(samples);
+    const nextDomain = clampZoomDomain(domain, fullDomain);
+    const fullSpan = fullDomain[1] - fullDomain[0];
+    const nextSpan = nextDomain[1] - nextDomain[0];
+    if (fullSpan <= 0 || nextSpan <= 0) {
+      return;
+    }
+    state.zoomDomain = nextSpan >= fullSpan * 0.999 ? null : nextDomain;
+    updateZoomControl();
+    scheduleZoomRender();
+  }
+
+  function zoomAt(xValue, factor) {
+    const samples = currentViewSamples();
+    const records = samples.flatMap(visibleRecordsFor);
+    if (!records.length || !Number.isFinite(xValue) || !Number.isFinite(factor)) {
+      return;
+    }
+
+    const fullDomain = getXDomainForSamples(samples);
+    const currentDomain = getDisplayedXDomainForSamples(samples);
+    const fullSpan = fullDomain[1] - fullDomain[0];
+    const currentSpan = currentDomain[1] - currentDomain[0];
+    const minimumSpan = state.axis === "point"
+      ? Math.max(1, fullSpan / 1000)
+      : Math.max(0.001, fullSpan / 1000);
+    const nextSpan = Math.max(minimumSpan, Math.min(fullSpan, currentSpan * factor));
+    const anchor = Math.max(0, Math.min(1, (xValue - currentDomain[0]) / currentSpan));
+    let start = xValue - nextSpan * anchor;
+    let end = start + nextSpan;
+
+    if (start < fullDomain[0]) {
+      end += fullDomain[0] - start;
+      start = fullDomain[0];
+    }
+    if (end > fullDomain[1]) {
+      start -= end - fullDomain[1];
+      end = fullDomain[1];
+    }
+    setZoomDomain([start, end]);
+  }
+
+  function resetZoom() {
+    if (!state.zoomDomain) {
+      return;
+    }
+    state.zoomDomain = null;
+    updateZoomControl();
+    scheduleZoomRender();
+  }
+
+  function updateZoomControl() {
+    const hasData = currentViewSamples().flatMap(visibleRecordsFor).length > 0;
+    const active = Boolean(state.zoomDomain);
+    refs.zoomResetButton.disabled = !hasData || !active;
+    refs.zoomResetButton.classList.toggle("is-active", active);
   }
 
   function nearestRecord(records, target) {
@@ -1124,8 +1244,12 @@
     if (!supportedAxes.includes(axis)) {
       return;
     }
-    state.axis = axis;
+    if (state.axis !== axis) {
+      state.axis = axis;
+      state.zoomDomain = null;
+    }
     updateAxisControl();
+    updateZoomControl();
     if (currentSample()) {
       window.requestAnimationFrame(renderVisibleCharts);
     }
@@ -1174,6 +1298,7 @@
   refs.compareSelectB.addEventListener("change", (event) => setComparisonSample(1, event.target.value));
   refs.sideBySideButton.addEventListener("click", () => setComparisonLayout("side-by-side"));
   refs.overlayButton.addEventListener("click", () => setComparisonLayout("overlay"));
+  refs.zoomResetButton.addEventListener("click", resetZoom);
   refs.toggleAllTags.addEventListener("click", () => {
     const sample = currentSample();
     if (!sample) {

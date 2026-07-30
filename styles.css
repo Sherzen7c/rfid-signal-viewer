@@ -185,6 +185,32 @@ select:focus-visible {
   opacity: 0.55;
 }
 
+.zoom-reset-button {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.zoom-reset-button:hover:not(:disabled),
+.zoom-reset-button.is-active {
+  border-color: rgba(8, 127, 131, 0.45);
+  background: var(--panel);
+  color: var(--accent);
+}
+
+.zoom-reset-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .file-button,
 .quiet-button {
   min-height: 34px;
